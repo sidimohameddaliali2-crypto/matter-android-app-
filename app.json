@@ -1,0 +1,95 @@
+{
+  "expo": {
+    "name": "Delivery Driver",
+    "slug": "delivery-driver",
+    "version": "1.0.2",
+    "orientation": "portrait",
+    "icon": "./assets/matter-icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/matter-logo-cropped.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#050f2b"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "This app uses the camera to capture delivery proof photos and scan QR codes.",
+        "NSLocationWhenInUseUsageDescription": "This app uses your location to track deliveries and provide navigation."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icons/mark-lime-transparent.png",
+        "backgroundColor": "#050f2b"
+      },
+      "permissions": [
+        "CAMERA",
+        "ACCESS_FINE_LOCATION",
+        "VIBRATE",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.FOREGROUND_SERVICE"
+      ],
+      "package": "com.matterapp.online",
+      "versionCode": 2
+    },
+    "web": {
+      "favicon": "./assets/matter-icon.png"
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Delivery Driver to access your camera for delivery photos and QR scanning."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow Delivery Driver to record your location when you complete a delivery."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icons/mark-lime-transparent.png",
+          "color": "#050f2b",
+          "sounds": []
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 36,
+            "targetSdkVersion": 36,
+            "buildToolsVersion": "36.1.0"
+          }
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow Delivery Driver to save delivery proof photos to your gallery.",
+          "savePhotosPermission": "Allow Delivery Driver to save delivery proof photos to your gallery.",
+          "isAccessMediaLocationEnabled": false
+        }
+      ],
+      "expo-asset",
+      "expo-font",
+      "./plugins/withAndroidLinkingQueries.js"
+    ],
+    "extra": {
+      "apiUrl": "https://matterapp.online/api",
+      "eas": {
+        "projectId": "fececa62-79c5-41b4-9d2f-91a193da45e3"
+      }
+    }
+  }
+}
