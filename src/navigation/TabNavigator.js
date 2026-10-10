@@ -13,6 +13,7 @@ import CameraScreen from '../screens/CameraScreen';
 import QRScannerScreen from '../screens/QRScannerScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import BagReturnScreen from '../screens/BagReturnScreen';
+import RouteNavigatorScreen from '../screens/RouteNavigatorScreen';
 
 const Tab = createBottomTabNavigator();
 const DeliveryStack = createStackNavigator();
@@ -67,6 +68,8 @@ const TabNavigator = () => {
             iconName = 'profile';
           } else if (route.name === 'BagReturn') {
             iconName = 'returns';
+          } else if (route.name === 'Route') {
+            iconName = 'route';
           }
 
           return <MatterNavIcon name={iconName} size={22} color={color} />;
@@ -104,6 +107,11 @@ const TabNavigator = () => {
         name="BagReturn"
         component={BagReturnScreen}
         options={{ tabBarLabel: 'Return Bag' }}
+      />
+      <Tab.Screen
+        name="Route"
+        component={RouteNavigatorScreen}
+        options={{ tabBarLabel: 'Route' }}
       />
       <Tab.Screen
         name="Profile"

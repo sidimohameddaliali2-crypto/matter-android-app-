@@ -3,6 +3,7 @@
     "name": "Delivery Driver",
     "slug": "delivery-driver",
     "version": "1.0.2",
+    "newArchEnabled": false,
     "orientation": "portrait",
     "icon": "./assets/matter-icon.png",
     "userInterfaceStyle": "light",
@@ -25,6 +26,11 @@
       "adaptiveIcon": {
         "foregroundImage": "./assets/icons/mark-lime-transparent.png",
         "backgroundColor": "#050f2b"
+      },
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyDx-l1jvM62ELmN1ir-C4RbAW3B8_p7sW8"
+        }
       },
       "permissions": [
         "CAMERA",

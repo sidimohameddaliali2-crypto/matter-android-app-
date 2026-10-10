@@ -136,6 +136,15 @@ export const driverService = {
     return response.data;
   },
 
+  // ROUTE DIRECTIONS - polyline + turn-by-turn steps through an ordered
+  // sequence of points (driver's current position + remaining stops), for
+  // the Route Navigator screen.
+  async getRouteDirections(id, points) {
+    logger.log('📤 driverService: Fetching route directions');
+    const response = await api.post(`/drivers/${id}/route-directions`, { points });
+    return response.data;
+  },
+
   // AVAILABILITY STATUS
   async updateDriverAvailability(id, isAvailable) {
     logger.log('📤 driverService: Updating driver availability:', isAvailable);

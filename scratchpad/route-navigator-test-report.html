@@ -1,0 +1,380 @@
+<title>Route Navigator Test Report</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* Layout: a single-column engineering report — stat strip, then stacked
+     cards (methodology, executed tests, the bug found, ten scenario
+     walkthroughs, a feature ledger, an outstanding-work checklist). */
+  :root {
+    --bg: #f6f7fa;
+    --bg-alt: #ffffff;
+    --fg: #161b22;
+    --muted: #5b6472;
+    --border: #e1e5eb;
+    --accent: #2f6fed;
+    --accent-bg: #e8f0fe;
+    --success: #137a4b;
+    --success-bg: #e4f6ec;
+    --warn: #8a5a00;
+    --warn-bg: #fbf0d9;
+    --danger: #ad2b22;
+    --danger-bg: #fbe9e7;
+    --mono-bg: #eef1f5;
+    --font-display: 'IBM Plex Sans', system-ui, sans-serif;
+    --font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0e1320;
+      --bg-alt: #161d2c;
+      --fg: #e7ebf3;
+      --muted: #94a0b4;
+      --border: #273047;
+      --accent: #7aa6ff;
+      --accent-bg: #1a2742;
+      --success: #3fdc9b;
+      --success-bg: #103324;
+      --warn: #e8bb63;
+      --warn-bg: #3a2c12;
+      --danger: #ff7a70;
+      --danger-bg: #3a1917;
+      --mono-bg: #1b2436;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0e1320;
+    --bg-alt: #161d2c;
+    --fg: #e7ebf3;
+    --muted: #94a0b4;
+    --border: #273047;
+    --accent: #7aa6ff;
+    --accent-bg: #1a2742;
+    --success: #3fdc9b;
+    --success-bg: #103324;
+    --warn: #e8bb63;
+    --warn-bg: #3a2c12;
+    --danger: #ff7a70;
+    --danger-bg: #3a1917;
+    --mono-bg: #1b2436;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-display);
+    padding: 0 18px;
+    padding-block: 32px 60px;
+    line-height: 1.5;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; }
+
+  h1, h2, h3 { text-wrap: balance; font-weight: 700; letter-spacing: -0.01em; }
+  h1 { font-size: clamp(24px, 5vw, 32px); margin: 0 0 6px; }
+  h2 { font-size: 20px; margin: 0 0 4px; }
+  h3 { font-size: 15.5px; margin: 0; }
+  p { margin: 0; }
+  code, .mono { font-family: var(--font-mono); }
+
+  .eyebrow {
+    font-size: 11.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--accent);
+  }
+  .subtitle { color: var(--muted); font-size: 14.5px; margin-top: 8px; max-width: 62ch; }
+  .meta { color: var(--muted); font-size: 12.5px; margin-top: 10px; font-family: var(--font-mono); }
+
+  .stats {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 10px; margin: 28px 0;
+  }
+  .stat {
+    background: var(--bg-alt); border: 1px solid var(--border); border-radius: 14px;
+    padding: 14px 16px;
+  }
+  .stat b {
+    display: block; font-family: var(--font-mono); font-size: 26px; font-weight: 600;
+    font-variant-numeric: tabular-nums; line-height: 1.1;
+  }
+  .stat span { display: block; margin-top: 4px; font-size: 12px; color: var(--muted); }
+  .stat.ok b { color: var(--success); }
+  .stat.danger b { color: var(--danger); }
+
+  section { margin-top: 36px; }
+  section > p.lead { color: var(--muted); font-size: 14px; margin-top: 8px; max-width: 64ch; }
+
+  .card {
+    background: var(--bg-alt); border: 1px solid var(--border); border-radius: 16px;
+    padding: 18px 20px; margin-top: 14px;
+  }
+
+  .pill {
+    display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 600;
+    padding: 3px 10px; border-radius: 999px; white-space: nowrap;
+  }
+  .pill.pass { background: var(--success-bg); color: var(--success); }
+  .pill.device { background: var(--warn-bg); color: var(--warn); }
+  .pill.fixed { background: var(--danger-bg); color: var(--danger); }
+
+  pre.term {
+    background: var(--mono-bg); border-radius: 10px; padding: 12px 14px; margin: 12px 0 0;
+    font-family: var(--font-mono); font-size: 12.5px; line-height: 1.55; overflow-x: auto;
+    color: var(--fg);
+  }
+  pre.term .ok { color: var(--success); }
+
+  .scenario-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  .scenario-head h3 { flex: 1; min-width: 0; }
+  ol.steps { margin: 10px 0 0; padding-left: 20px; font-size: 13.5px; }
+  ol.steps li { margin-bottom: 4px; }
+  ol.steps .t { font-family: var(--font-mono); font-size: 12px; color: var(--accent); }
+  .expect {
+    margin-top: 10px; padding: 10px 12px; border-left: 3px solid var(--accent);
+    background: var(--accent-bg); border-radius: 0 8px 8px 0; font-size: 13px;
+  }
+  .cite { margin-top: 8px; font-size: 11.5px; color: var(--muted); font-family: var(--font-mono); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; margin-top: 14px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 600; }
+  td:first-child { font-weight: 500; }
+  .tablewrap { overflow-x: auto; }
+
+  ul.checklist { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 8px; }
+  ul.checklist li {
+    display: flex; gap: 10px; align-items: flex-start; font-size: 13.5px;
+    background: var(--warn-bg); border-radius: 10px; padding: 10px 12px;
+  }
+  ul.checklist li::before { content: '\25CB'; color: var(--warn); font-size: 14px; line-height: 1.4; }
+
+  footer { margin-top: 44px; padding-top: 18px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; }
+</style>
+
+<div class="wrap">
+  <div class="eyebrow">Delivery Driver App &middot; Route Navigator</div>
+  <h1>Route Navigator test report</h1>
+  <p class="subtitle">Completion timing, map rendering, and GPS behaviour for every feature added this session, verified by actually running the code where that's possible, and by a line-by-line trace of the rest.</p>
+  <p class="meta">No physical device or working emulator was available in this environment — see Methodology below for exactly what that does and doesn't cover.</p>
+
+  <div class="stats">
+    <div class="stat ok"><b>22 / 22</b><span>automated tests passed</span></div>
+    <div class="stat"><b>10</b><span>scenarios traced</span></div>
+    <div class="stat danger"><b>1</b><span>real bug found &amp; fixed</span></div>
+    <div class="stat"><b>5</b><span>items still need a live device</span></div>
+  </div>
+
+  <section>
+    <h2>Methodology</h2>
+    <p class="lead">Three separate kinds of checking went into this, kept distinct below rather than blended into one "looks fine" verdict:</p>
+    <div class="card">
+      <p><b>1. Executed tests</b> — the route maths (distance, bearing, nearest-point-on-route) and the server's polyline decoder run as real Jest / Node test suites below, with their actual terminal output. These are hard results, not estimates.</p>
+      <p style="margin-top:10px"><b>2. Code trace</b> — the stateful parts (GPS watch timing, phase transitions, button gating) can't run without React Native and a GPS chip, so each scenario below is a manual step-by-step trace against the actual committed code, citing exactly what was read. This is where the one real bug turned up.</p>
+      <p style="margin-top:10px"><b>3. Needs a live device</b> — map tile rendering, the native blue-dot location marker, and real GPS hardware behaviour can only be confirmed by actually driving with the app open. Flagged explicitly at the end rather than assumed to be fine.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>1 &middot; Executed tests</h2>
+    <p class="lead">Real test runs, not simulated. Both suites are new — the mobile app had no test infrastructure at all before this pass.</p>
+
+    <div class="card">
+      <div class="scenario-head"><h3>Mobile &middot; route maths (<code>routeProgress.test.js</code>)</h3><span class="pill pass">16 / 16 passed</span></div>
+      <p style="margin-top:8px;color:var(--muted);font-size:13px">Haversine distance, compass bearing, and the nearest-point-on-polyline projection that drives the "how far to the next turn" banner — checked against hand-computed reference values, including the exact great-circle distance for 1&deg; of longitude at the equator (111,194.93&nbsp;m).</p>
+      <pre class="term">PASS src/utils/routeProgress.test.js
+distanceMeters
+  <span class="ok">&#10003;</span> returns 0 for identical points
+  <span class="ok">&#10003;</span> matches the known great-circle distance for 1&deg; at the equator
+  <span class="ok">&#10003;</span> is symmetric
+  <span class="ok">&#10003;</span> matches a known Dubai-scale (~300m) distance
+bearing
+  <span class="ok">&#10003;</span> 0&deg; north / 90&deg; east / 180&deg; south / 270&deg; west
+nearestPointOnPolyline
+  <span class="ok">&#10003;</span> null for a polyline under 2 points
+  <span class="ok">&#10003;</span> projects an off-route driver onto the correct point + distance
+  <span class="ok">&#10003;</span> clamps to the start / end of the route
+formatDistance / formatMinutes
+  <span class="ok">&#10003;</span> 230 m, 1.5 km, 2 min, 1 min floor
+
+Tests:  16 passed, 16 total</pre>
+    </div>
+
+    <div class="card">
+      <div class="scenario-head"><h3>Server &middot; directions decoding (<code>googleDirectionsService.test.js</code>)</h3><span class="pill pass">6 / 6 passed</span></div>
+      <p style="margin-top:8px;color:var(--muted);font-size:13px">Checked the polyline decoder against Google's own published worked example &mdash; this is where the "route line doesn't follow the road" bug actually lived (detail below).</p>
+      <pre class="term">PASS services/googleDirectionsService.test.js
+<span class="ok">&#10003;</span> decodePolyline matches Google's own documented example
+<span class="ok">&#10003;</span> decodePolyline handles a single-point polyline
+<span class="ok">&#10003;</span> decodePolyline returns [] for empty input
+<span class="ok">&#10003;</span> stripHtml removes &lt;b&gt; tags from a real instruction
+<span class="ok">&#10003;</span> stripHtml decodes &amp;amp; / &amp;nbsp; entities
+<span class="ok">&#10003;</span> stripHtml handles null/undefined
+
+Full server suite: 52 / 52 passed (46 pre-existing + 6 new)</pre>
+    </div>
+  </section>
+
+  <section>
+    <h2>2 &middot; Bug found during this review</h2>
+    <div class="card" style="border-color:var(--danger)">
+      <div class="scenario-head"><h3>Route stayed stale after completing a stop</h3><span class="pill fixed">Found &amp; fixed</span></div>
+      <p style="margin-top:10px;font-size:13.5px"><b>What was wrong:</b> the screen tried to detect "the driver just completed this stop" by checking whether the current stop's ID appeared in a completed-deliveries list. Tracing the actual render order showed that check could never be true &mdash; by the time a stop is marked complete, it has already been filtered out of the screen's own stop list, so it can never simultaneously be "the current stop" <em>and</em> "in the completed list" in the same render.</p>
+      <p style="margin-top:8px;font-size:13.5px"><b>Effect:</b> the map kept showing the route line to the <em>just-finished</em> stop, and if the "Arrived" screen was still open when the next stop's data arrived, it would start showing the next customer's name while the screen still said "Arrived" &mdash; before the driver had actually gotten there.</p>
+      <p style="margin-top:8px;font-size:13.5px"><b>Fix:</b> track the current stop's identity directly in a ref instead. Whenever it changes while mid-route, reset to the driving phase and fetch a fresh route for whatever stop is now active &mdash; works the same regardless of whether the stop was completed through this screen or from the Deliveries tab directly.</p>
+      <p class="cite">RouteNavigatorScreen.js &mdash; replaced the completed-IDs check with an <code>activeStopIdRef</code> identity-change effect. Also removed <code>activeIndex</code>/<code>doneStopIds</code> state, which turned out to be unreachable for the same reason.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>3 &middot; Scenario walkthroughs</h2>
+    <p class="lead">Each traced against the committed code, with the real timing constants it actually uses.</p>
+
+    <div class="card">
+      <div class="scenario-head"><h3>Permission &amp; first GPS fix</h3><span class="pill pass">Verified by trace</span></div>
+      <ol class="steps">
+        <li><span class="t">t=0</span> Screen mounts, requests foreground location permission.</li>
+        <li>Denied &rarr; full-screen "Location permission needed", no map ever renders.</li>
+        <li>Granted &rarr; one GPS fix requested, raced against a <span class="mono">12,000&nbsp;ms</span> timeout.</li>
+        <li>Fix arrives in time (typical outdoors: 1&ndash;3s) &rarr; "Start route" enables.</li>
+        <li>No fix within 12s (weak/indoor signal) &rarr; red error text + Retry button, not an infinite spinner.</li>
+      </ol>
+      <div class="expect">Expected: the button never hangs on "Getting your location&hellip;" forever, in either failure mode.</div>
+      <p class="cite">RouteNavigatorScreen.js &mdash; initial-position effect (Promise.race against setTimeout)</p>
+    </div>
+
+    <div class="card">
+      <div class="scenario-head"><h3>Idle overview, before starting</h3><span class="pill pass">Verified by trace</span></div>
+      <ol class="steps">
+        <li>Today's pending deliveries filtered to those with GPS coordinates, sorted by stop number (falls back to scheduled time).</li>
+        <li><span class="t">t=300ms</span> after mount, camera fits all stop pins with asymmetric padding (more room at the bottom, under the sheet).</li>
+        <li>Zero routable stops &rarr; dedicated empty state, distinct from "route complete".</li>
+      </ol>
+      <div class="expect">Expected: an overview of the whole day's route before committing to "Start".</div>
+      <p class="cite">RouteNavigatorScreen.js &mdash; <code>stops</code> memo, idle-phase <code>recenter()</code> effect</p>
+    </div>
+
+    <div class="card">
+      <div class="scenario-head"><h3>Tapping "Start route"</h3><span class="pill pass">Verified by trace</span></div>
+      <ol class="steps">
+        <li><span class="t">t=0</span> Phase &rarr; driving. Camera mode &rarr; car.</li>
+        <li>Camera animates to the driver's position immediately: 60&deg; pitch, zoom 17, 450ms &mdash; called directly here, not left to a reactive effect that could lag a render behind.</li>
+        <li>Directions requested for just the single next stop (not the whole day), bounded by the API client's 15,000&nbsp;ms timeout.</li>
+        <li>Success &rarr; route polyline drawn, instruction banner appears. Failure/timeout &rarr; red pill, no stale line left on screen.</li>
+      </ol>
+      <div class="expect">Expected: the driver-mode camera tilt happens on the tap itself, not sometime after.</div>
+      <p class="cite">RouteNavigatorScreen.js &mdash; <code>startRoute()</code></p>
+    </div>
+
+    <div class="card">
+      <div class="scenario-head"><h3>Driving &mdash; live tracking</h3><span class="pill pass">Verified by trace</span></div>
+      <ol class="steps">
+        <li>GPS watch: Balanced accuracy, fires on whichever comes first &mdash; <span class="mono">4,000&nbsp;ms</span> elapsed or <span class="mono">15&nbsp;m</span> moved.</li>
+        <li>Heading from the device's own compass/course when available; falls back to bearing-between-fixes otherwise.</li>
+        <li>Camera re-centers on every fix while in car mode &mdash; in practice, roughly every 4 seconds, more often if moving fast.</li>
+        <li>Instruction banner picks the step whose cumulative distance hasn't yet been passed, with a matching left/right/u-turn/straight icon from Google's own manoeuvre code.</li>
+      </ol>
+      <div class="expect">Expected: a smooth-feeling follow camera without hammering the GPS chip or the directions API.</div>
+      <p class="cite">RouteNavigatorScreen.js &mdash; <code>GPS_WATCH_OPTIONS</code>, camera-follow effect, <code>progress</code> memo</p>
+    </div>
+
+    <div class="card">
+      <div class="scenario-head"><h3>25m arrival gate</h3><span class="pill pass">Verified by trace</span></div>
+      <ol class="steps">
+        <li>Distance to the active stop recomputed on every GPS fix (Haversine &mdash; the exact formula checked in the executed tests above).</li>
+        <li>&gt;25m away: "I've arrived" disabled, label shows live "Get closer (Xm away)".</li>
+        <li>&le;25m: button enables.</li>
+        <li>GPS watch deliberately kept alive through the Arrived phase too (not just Driving) &mdash; otherwise this distance would freeze at whatever it was the instant "arrived" was tapped.</li>
+        <li>"Scan bags &amp; complete" carries the <em>same</em> 25m gate &mdash; if the driver drifts off before completing, a message explains why instead of silently blocking the button.</li>
+      </ol>
+      <div class="expect">Expected: physically impossible to complete a delivery from somewhere else.</div>
+      <p class="cite">RouteNavigatorScreen.js &mdash; <code>ARRIVAL_RADIUS_M</code>, <code>nearArrival</code>, GPS-watch phase condition</p>
+    </div>
+
+    <div class="card">
+      <div class="scenario-head"><h3>Completion hand-off</h3><span class="pill pass">Verified by trace</span></div>
+      <ol class="steps">
+        <li>"Scan bags &amp; complete" navigates into the existing <code>DeliveryDetailsScreen</code> &mdash; the identical component used from the Deliveries tab, not a copy.</li>
+        <li>Photo capture, QR/bag scan, proof submission, and the offline sync queue all apply unchanged.</li>
+        <li>No "Skip stop" or "End route" exist any more &mdash; once started, progress is forward-only.</li>
+      </ol>
+      <div class="expect">Expected: nothing new to learn, no parallel completion flow to maintain.</div>
+      <p class="cite">RouteNavigatorScreen.js &mdash; <code>handleCompleteStop()</code></p>
+    </div>
+
+    <div class="card">
+      <div class="scenario-head"><h3>Resync after completion (the fixed bug, re-traced)</h3><span class="pill pass">Verified by trace</span></div>
+      <ol class="steps">
+        <li>Driver completes stop A, taps "Back to deliveries" &rarr; lands on Deliveries &gt; list, which re-fetches the driver's deliveries.</li>
+        <li>That fetch updates the one shared Redux store both tabs read from &mdash; Route tab is still mounted in the background and re-renders immediately, with A now excluded and B as the new active stop.</li>
+        <li>Identity-change effect notices B &ne; A, resets phase to Driving, fetches B's route.</li>
+        <li>Driver switches back to the Route tab: already showing B, not stale data for A.</li>
+        <li>If A was the last stop: phase &rarr; Done instead.</li>
+      </ol>
+      <div class="expect">Expected: correct next stop and fresh route every time, regardless of which screen completed the delivery.</div>
+      <p class="cite">RouteNavigatorScreen.js &mdash; <code>activeStopIdRef</code> effect &middot; DeliveryDetailsScreen.js &mdash; <code>backToDeliveries()</code></p>
+    </div>
+
+    <div class="card">
+      <div class="scenario-head"><h3>Empty &amp; denied states</h3><span class="pill pass">Verified by trace</span></div>
+      <ol class="steps">
+        <li>No location permission &rarr; dedicated message, map never mounts.</li>
+        <li>No stops with GPS coordinates &rarr; dedicated message, distinct from "route complete".</li>
+      </ol>
+      <div class="expect">Expected: never a blank map with no explanation.</div>
+    </div>
+
+    <div class="card">
+      <div class="scenario-head"><h3>Visual: dark map, blue dot, recenter button</h3><span class="pill device">Needs live device</span></div>
+      <p style="margin-top:8px;font-size:13.5px">Config verified to be syntactically correct (valid Google Maps style JSON, native <code>showsUserLocation</code> flag, Google-style white recenter button) &mdash; but actual tile rendering, the native blue dot's rotation cone, and whether the dark palette reads well on real map imagery can only be judged by looking at a live map.</p>
+    </div>
+
+    <div class="card">
+      <div class="scenario-head"><h3>Server directions endpoint</h3><span class="pill pass">Verified by trace + tests</span></div>
+      <ol class="steps">
+        <li>Permission check mirrors the existing driver-location endpoint (self or admin).</li>
+        <li>Rejects fewer than 2 valid coordinate points.</li>
+        <li>Calls Google Directions with <code>optimize:false</code> &mdash; a lookup, never a re-ordering.</li>
+        <li>Decodes the polyline (now verified against Google's own published example) and carries the manoeuvre code through per step.</li>
+      </ol>
+      <p class="cite">server/routes/drivers.js &mdash; <code>POST /:id/route-directions</code> &middot; services/googleDirectionsService.js</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>4 &middot; Everything added this session</h2>
+    <div class="tablewrap">
+    <table>
+      <tr><th>Feature</th><th>Status</th></tr>
+      <tr><td>Route Navigator screen, ported from the design prototype</td><td><span class="pill pass">Shipped</span></td></tr>
+      <tr><td>Live GPS tracking (foreground-only)</td><td><span class="pill pass">Shipped</span></td></tr>
+      <tr><td>Server Google Directions proxy + polyline decoder</td><td><span class="pill fixed">Shipped, bug fixed</span></td></tr>
+      <tr><td>Single-stop-at-a-time routing</td><td><span class="pill pass">Shipped</span></td></tr>
+      <tr><td>25m arrival-proximity gate (arrive + complete)</td><td><span class="pill pass">Shipped</span></td></tr>
+      <tr><td>Removed End route / Skip stop</td><td><span class="pill pass">Shipped</span></td></tr>
+      <tr><td>Car-mode camera, triggered on Start</td><td><span class="pill pass">Shipped</span></td></tr>
+      <tr><td>Native Google blue-dot location marker</td><td><span class="pill device">Needs device look</span></td></tr>
+      <tr><td>Google-style recenter button</td><td><span class="pill device">Needs device look</span></td></tr>
+      <tr><td>Dark map style matching app palette</td><td><span class="pill device">Needs device look</span></td></tr>
+      <tr><td>Left/right/u-turn manoeuvre icons</td><td><span class="pill pass">Shipped</span></td></tr>
+      <tr><td>Hand-off to existing completion flow (photo/QR/proof)</td><td><span class="pill pass">Shipped</span></td></tr>
+      <tr><td>Stale-route-after-completion bug</td><td><span class="pill fixed">Found &amp; fixed this review</span></td></tr>
+      <tr><td>Mobile test infrastructure (none existed before)</td><td><span class="pill pass">Added, 16 tests</span></td></tr>
+      <tr><td>Server directions tests</td><td><span class="pill pass">Added, 6 tests</span></td></tr>
+    </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>5 &middot; Still needs a live device or your confirmation</h2>
+    <ul class="checklist">
+      <li>Android Google Maps SDK key fully enabled + billing active in Google Cloud Console (was mid-setup earlier this session).</li>
+      <li>Server redeployed with the latest code &mdash; the polyline fix, manoeuvre field, and the directions endpoint itself all need the running process restarted, not just the files updated.</li>
+      <li>Real GPS hardware behaviour: signal loss, drift, indoor accuracy &mdash; nothing in this environment can simulate an actual GPS chip.</li>
+      <li>A visual pass on the dark map style, the native blue dot, and the recenter button on a real screen.</li>
+      <li>An actual on-road test to confirm the 25m arrival radius and turn-by-turn timing feel right at driving speed &mdash; both are one-line constants to retune if not.</li>
+    </ul>
+  </section>
+
+  <footer>Route Navigator &middot; Delivery Driver app &middot; test pass covering GPS tracking, directions, arrival gating, and completion hand-off.</footer>
+</div>
