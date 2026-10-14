@@ -16,7 +16,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { fetchDriverDeliveries, markDeliveryCompleted, processSyncQueue } from '../store/deliveriesSlice';
 import { useAuth } from '../contexts/AuthContext';
 import { notificationService } from '../services/notificationService';
-import { isTodayUAE } from '../utils/uaeTime';
+import { isAvailableDeliveryDay } from '../utils/uaeTime';
 import { colors } from '../theme/matterTheme';
 
 const isCollectionItem = (d) =>
@@ -120,7 +120,7 @@ const DeliveriesScreen = ({ navigation, route }) => {
   const dispatch = useDispatch();
   const insets = useSafeAreaInsets();
   const { user, driverProfile } = useAuth();
-  const { deliveries, loading, showTodayOnly, completedDeliveries } = useSelector((state) => state.deliveries);
+  const { deliveries, loading, showTodayOnly, completedDeliveries, syncQueue, syncError } = useSelector((state) => state.deliveries);
   const [refreshing, setRefreshing] = useState(false);
   const [statusTab, setStatusTab] = useState('pending');
   const [searchTerm, setSearchTerm] = useState('');
@@ -143,21 +143,19 @@ const DeliveriesScreen = ({ navigation, route }) => {
 
   const loadDeliveries = useCallback(async () => {
     setRefreshing(true);
+    const driverId = driverProfile?.id || user?.id || user?._id;
     try {
-      const driverId = driverProfile?.id || user?.id || user?._id;
       if (driverId) {
         await dispatch(fetchDriverDeliveries(driverId)).unwrap();
-        try {
-          await dispatch(processSyncQueue()).unwrap();
-        } catch {
-          // Non-fatal
-        }
       } else {
         Alert.alert('Error', 'Driver profile not loaded. Please log in again.');
       }
     } catch (error) {
       Alert.alert('Error', error?.message || 'Unable to load deliveries');
     } finally {
+      if (driverId) {
+        try { await dispatch(processSyncQueue()).unwrap(); } catch { /* Displayed by syncError below. */ }
+      }
       setRefreshing(false);
     }
   }, [dispatch, driverProfile, user]);
@@ -206,12 +204,11 @@ const DeliveriesScreen = ({ navigation, route }) => {
     let filtered = deliveries;
 
     if (showTodayOnly) {
-      const todaysOnly = filtered.filter(d => isTodayUAE(d.scheduledTime));
-      if (todaysOnly.length > 0) filtered = todaysOnly;
+      filtered = filtered.filter(d => isAvailableDeliveryDay(d.scheduledTime));
     }
 
     if (statusTab === 'collection') {
-      filtered = filtered.filter(d => isCollectionItem(d));
+      filtered = filtered.filter(d => isCollectionItem(d) && d.displayStatus === 'pending');
       filtered = filtered.filter(d => !completedDeliveries.includes(d._id));
     } else if (statusTab === 'pending') {
       filtered = filtered.filter(d => d.displayStatus === 'pending' && !isCollectionItem(d));
@@ -223,12 +220,12 @@ const DeliveriesScreen = ({ navigation, route }) => {
     }
 
     if (searchTerm.trim()) {
-      const searchLower = searchTerm.toLowerCase();
+      const searchLower = searchTerm.trim().toLowerCase();
       filtered = filtered.filter(d => {
-        const customerName = (d.customerName || '').toLowerCase();
-        const address = (d.address || '').toLowerCase();
-        const customerId = (d.customerId || '').toLowerCase();
-        const phone = (d.phone || '').toLowerCase();
+        const customerName = String(d.customer?.name || d.customerName || '').toLowerCase();
+        const address = String(d.customer?.address || d.address || '').toLowerCase();
+        const customerId = String(d.customer?.customerId || d.customerId || '').toLowerCase();
+        const phone = String(d.customer?.phone || d.phone || d.customerPhone || '').toLowerCase();
         return customerName.includes(searchLower) || address.includes(searchLower) ||
                customerId.includes(searchLower) || phone.includes(searchLower);
       });
@@ -239,9 +236,9 @@ const DeliveriesScreen = ({ navigation, route }) => {
 
   const stats = useMemo(() => {
     const statsDeliveries = showTodayOnly
-      ? deliveries.filter(d => isTodayUAE(d.scheduledTime))
+      ? deliveries.filter(d => isAvailableDeliveryDay(d.scheduledTime))
       : deliveries;
-    const collections = statsDeliveries.filter(d => isCollectionItem(d) && !completedDeliveries.includes(d._id));
+    const collections = statsDeliveries.filter(d => isCollectionItem(d) && d.displayStatus === 'pending' && !completedDeliveries.includes(d._id));
     const normalDeliveries = statsDeliveries.filter(d => !isCollectionItem(d));
     return {
       pending: normalDeliveries.filter(d => d.displayStatus === 'pending' && !completedDeliveries.includes(d._id)).length,
@@ -286,6 +283,14 @@ const DeliveriesScreen = ({ navigation, route }) => {
       {/* ── Fixed header ── */}
       <View style={[styles.fixedHeader, { paddingTop: insets.top + 16 }]}>
         <Text style={styles.screenTitle}>Deliveries</Text>
+
+        {(syncError || syncQueue.some(item => item.status !== 'synced')) && (
+          <View style={{ paddingVertical: 10 }}>
+            <Text style={{ color: syncError ? colors.danger : colors.blue }}>
+              {syncError || 'Saved offline. Pull to refresh to sync.'}
+            </Text>
+          </View>
+        )}
 
         {/* Search bar */}
         <View style={styles.searchWrapper}>

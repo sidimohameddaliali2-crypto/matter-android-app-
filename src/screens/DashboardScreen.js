@@ -5,7 +5,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
 import { fetchDriverDeliveries } from '../store/deliveriesSlice';
-import { isTodayUAE } from '../utils/uaeTime';
+import { isAvailableDeliveryDay } from '../utils/uaeTime';
 import logger from '../utils/logger';
 import MatterLogo from '../components/MatterLogo';
 import NotificationsModal from '../components/NotificationsModal';
@@ -67,16 +67,16 @@ const DashboardScreen = ({ navigation }) => {
   // Calculate stats from Redux deliveries
   const stats = React.useMemo(() => {
     const todaysDeliveries = deliveries.filter(
-      (d) => d && d.scheduledTime && isTodayUAE(d.scheduledTime)
+      (d) => d && d.scheduledTime && isAvailableDeliveryDay(d.scheduledTime)
     );
 
-    const collectionItems = todaysDeliveries.filter(isCollectionItem);
+    const collectionItems = todaysDeliveries.filter(d => isCollectionItem(d) && d.displayStatus === 'pending');
     const normalDeliveries = todaysDeliveries.filter((d) => !isCollectionItem(d));
     const deliveredCount = normalDeliveries.filter((d) => d.displayStatus === 'delivered').length;
     const pendingCount = normalDeliveries.filter((d) => d.displayStatus === 'pending').length;
 
     return {
-      today: todaysDeliveries.length,
+      today: normalDeliveries.length,
       delivered: deliveredCount,
       pending: pendingCount,
       collection: collectionItems.length,

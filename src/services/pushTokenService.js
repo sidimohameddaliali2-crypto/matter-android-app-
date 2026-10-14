@@ -5,19 +5,19 @@ import logger from '../utils/logger';
 // with different error-tolerance semantics (must never throw — a failure
 // here must never block login/logout), not session/credential management.
 export const pushTokenService = {
-  async registerPushToken(token, platform) {
+  async registerPushToken(token, platform, sessionToken) {
     if (!token) return;
     try {
-      await api.post('/auth/push-token', { token, platform });
+      await api.post('/auth/push-token', { token, platform }, { ...(sessionToken && { headers: { Authorization: `Bearer ${sessionToken}` } }) });
     } catch (error) {
       logger.warn('⚠️ pushTokenService: failed to register push token:', error?.message || error);
     }
   },
 
-  async unregisterPushToken(token) {
+  async unregisterPushToken(token, sessionToken) {
     if (!token) return;
     try {
-      await api.delete('/auth/push-token', { data: { token } });
+      await api.delete('/auth/push-token', { data: { token }, ...(sessionToken && { headers: { Authorization: `Bearer ${sessionToken}` } }) });
     } catch (error) {
       logger.warn('⚠️ pushTokenService: failed to unregister push token:', error?.message || error);
     }

@@ -1,0 +1,14 @@
+node_modules/
+.expo/
+/android/
+/ios/
+
+# Local Sentry API credentials
+.sentryclirc
+.env.sentry*
+*.md
+coverage/
+scratchpad/
+**/*.test.js
+**/__fixtures__/
+%ProgramData%/

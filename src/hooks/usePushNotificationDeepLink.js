@@ -5,6 +5,7 @@ import { notificationService } from '../services/notificationService';
 import { navigate } from '../navigation/navigationRef';
 import { addNotification } from '../store/notificationsSlice';
 import logger from '../utils/logger';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Reads the { type, deliveryId } data payload the server attaches to every
 // delivery push (see pushNotificationService.js on the backend), records it
@@ -15,12 +16,14 @@ import logger from '../utils/logger';
 // "delivery_removed" is intentionally not navigated — the driver no longer
 // has that delivery, so there's nothing useful to open — but it's still
 // recorded.
-const buildHandleResponse = (dispatch) => (response) => {
+const buildHandleResponse = (dispatch) => async (response) => {
   try {
     const request = response?.notification?.request;
     const content = request?.content;
     const data = content?.data;
     if (!data) return;
+    if (request.identifier && await AsyncStorage.getItem('handledNotification') === request.identifier) return;
+    if (request.identifier) await AsyncStorage.setItem('handledNotification', request.identifier);
 
     dispatch(addNotification({
       id: request.identifier,
@@ -62,7 +65,12 @@ export default function usePushNotificationDeepLink() {
   return async () => {
     if (handledColdStart.current) return;
     handledColdStart.current = true;
-    const response = await Notifications.getLastNotificationResponseAsync();
-    if (response) buildHandleResponse(dispatch)(response);
+    try {
+      const response = await Notifications.getLastNotificationResponseAsync();
+      if (response) await buildHandleResponse(dispatch)(response);
+    } catch (error) {
+      handledColdStart.current = false;
+      logger.warn('Could not read launch notification:', error?.message || error);
+    }
   };
 }

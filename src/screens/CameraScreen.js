@@ -1,11 +1,13 @@
 ﻿// screens/CameraScreen.js
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, TouchableOpacity, Alert, Image, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, Alert, Image, ActivityIndicator, StyleSheet, Platform } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as MediaLibrary from 'expo-media-library';
 import { Ionicons } from '@expo/vector-icons';
 import logger from '../utils/logger';
+import { useIsFocused } from '@react-navigation/native';
+import { persistProofPhoto, deletePhotoFile } from '../services/photoStorage';
 
 const CameraScreen = ({ navigation, route }) => {
   const { source } = route.params || {};
@@ -16,6 +18,23 @@ const CameraScreen = ({ navigation, route }) => {
   const [isCapturing, setIsCapturing] = useState(false);
   const [isCameraReady, setIsCameraReady] = useState(false);
   const cameraRef = useRef(null);
+  const isFocused = useIsFocused();
+  const captureLock = useRef(false);
+  const generation = useRef(0);
+  const ownedPhoto = useRef(null);
+
+  useEffect(() => {
+    setIsCameraReady(false);
+    setPhoto(null);
+    setCompressing(false);
+    setIsCapturing(false);
+    return () => {
+      generation.current += 1;
+      const abandoned = ownedPhoto.current;
+      ownedPhoto.current = null;
+      deletePhotoFile(abandoned?.uri);
+    };
+  }, [isFocused]);
 
   useEffect(() => {
     if (permission && !permission.granted && permission.canAskAgain) {
@@ -24,73 +43,67 @@ const CameraScreen = ({ navigation, route }) => {
   }, [permission]);
 
   const handleCapture = async () => {
-    if (!cameraRef.current || !isCameraReady || compressing || isCapturing) return;
+    if (!isFocused || !cameraRef.current || !isCameraReady || captureLock.current) return;
+    captureLock.current = true;
+    const captureGeneration = generation.current;
+    const isCurrent = () => captureGeneration === generation.current;
+    let raw;
+    let compressed;
+    let saved;
     setIsCapturing(true);
     try {
-      // skipProcessing: false (the previous setting) makes expo-camera do
-      // extra native post-processing (EXIF/orientation normalization,
-      // mirroring) on the raw capture before returning it — this is a
-      // well-documented source of takePictureAsync throwing outright on a
-      // meaningful slice of Android devices/chipsets, and matches drivers
-      // reporting "Failed to capture photo" consistently, not intermittently.
-      // Safe to skip here regardless: the ImageManipulator resize step right
-      // below re-encodes the image anyway (and still honors EXIF orientation
-      // when reading the source), so nothing is actually lost downstream.
-      const raw = await cameraRef.current.takePictureAsync({
-        quality: 1,
-        base64: false,
-        skipProcessing: true,
-      });
-
-      // Save a copy to the driver's own gallery, independent of everything
-      // below — it's a purely local file-system write, no network involved,
-      // so it happens identically whether the device is online or offline
-      // (unlike the upload flow, which the completion screen already
-      // queues for later sync when offline). Best-effort and silent: a
-      // driver who's never granted media-library access still completes
-      // the delivery exactly as before, just without a personal copy.
-      MediaLibrary.requestPermissionsAsync()
-        .then((permission) => (permission.granted ? MediaLibrary.saveToLibraryAsync(raw.uri) : null))
-        .catch((saveError) => {
-          logger.warn('Could not save delivery photo to gallery:', saveError?.message || saveError);
-        });
-
+      raw = await cameraRef.current.takePictureAsync({ quality: 1, base64: false, skipProcessing: true });
+      if (!isCurrent()) return;
       setCompressing(true);
-      const compressed = await ImageManipulator.manipulateAsync(
+      compressed = await ImageManipulator.manipulateAsync(
         raw.uri,
-        [{ resize: { width: 1200 } }],
-        {
-          compress: 0.75,
-          format: ImageManipulator.SaveFormat.JPEG,
-          base64: true,
-        }
+        raw.width > 1200 ? [{ resize: { width: 1200 } }] : [],
+        { compress: 0.75, format: ImageManipulator.SaveFormat.JPEG, base64: false }
       );
-
-      setPhoto({ uri: compressed.uri, base64: compressed.base64 });
+      if (!isCurrent()) return;
+      saved = await persistProofPhoto(compressed.uri);
+      if (!isCurrent()) return;
+      // Await the local gallery operation before allowing retake to remove its
+      // source file. No full-resolution or base64 copy is kept in JS state.
+      try {
+        const mediaPermission = await MediaLibrary.requestPermissionsAsync();
+        if (mediaPermission.granted && isCurrent()) await MediaLibrary.saveToLibraryAsync(saved.uri);
+      } catch (error) {
+        logger.warn('Could not save delivery photo to gallery:', error?.message || error);
+      }
+      if (!isCurrent()) return;
+      ownedPhoto.current = saved;
+      setIsCameraReady(false);
+      setPhoto(saved);
+      saved = null;
     } catch (error) {
-      // Include the real error message in the alert (not just logger.error,
-      // which console.error's — release builds have no crash reporting wired
-      // up, so that's otherwise invisible to us). A driver reporting a
-      // generic "Failed to capture photo" gives us nothing to diagnose from;
-      // this at least lets them relay the actual reason next time. Camera
-      // hardware can also be legitimately preempted by an active phone call
-      // on some devices, hence the added hint.
-      logger.error('Error capturing / compressing photo:', error);
-      Alert.alert(
-        'Error',
-        `Failed to capture photo${error?.message ? `: ${error.message}` : ''}. If you're on a call, try again after it ends.`
-      );
+      if (isCurrent()) {
+        logger.error('Error capturing / compressing photo:', error);
+        Alert.alert('Error', `Failed to capture photo${error?.message ? `: ${error.message}` : ''}. If you're on a call, try again after it ends.`);
+      }
     } finally {
-      setCompressing(false);
-      setIsCapturing(false);
+      await Promise.all([deletePhotoFile(raw?.uri), deletePhotoFile(compressed?.uri), deletePhotoFile(saved?.uri)]);
+      captureLock.current = false;
+      if (isCurrent()) {
+        setCompressing(false);
+        setIsCapturing(false);
+      }
     }
   };
 
-  const handleRetake = () => setPhoto(null);
+  const handleRetake = () => {
+    const discarded = ownedPhoto.current;
+    ownedPhoto.current = null;
+    setIsCameraReady(false);
+    setPhoto(null);
+    deletePhotoFile(discarded?.uri);
+  };
 
   const toggleFlash = () => setIsFlashOn((prev) => !prev);
 
   const handleConfirm = () => {
+    if (!photo) return;
+    ownedPhoto.current = null; // DeliveryDetails/offline queue now owns this file.
     navigation.navigate({
       name: 'DeliveryDetails',
       params: {
@@ -102,6 +115,8 @@ const CameraScreen = ({ navigation, route }) => {
   };
 
   // ── Permission states ──────────────────────────────────────────────────────
+
+  if (!isFocused) return <View style={styles.flex} />;
 
   if (!permission) {
     return (
@@ -128,9 +143,7 @@ const CameraScreen = ({ navigation, route }) => {
   // ── Review screen (photo taken) ────────────────────────────────────────────
 
   if (photo) {
-    const previewUri = photo.base64
-      ? `data:image/jpeg;base64,${photo.base64}`
-      : photo.uri;
+    const previewUri = photo.uri;
 
     return (
       <View style={styles.flex}>
@@ -160,6 +173,7 @@ const CameraScreen = ({ navigation, route }) => {
         ref={cameraRef}
         style={StyleSheet.absoluteFillObject}
         facing="back"
+        pictureSize={Platform.OS === 'android' ? '1600x1200' : undefined}
         enableTorch={isFlashOn}
         onCameraReady={() => setIsCameraReady(true)}
         onMountError={(error) => {
@@ -197,6 +211,7 @@ const CameraScreen = ({ navigation, route }) => {
           )}
           <TouchableOpacity
             style={[styles.captureBtn, isBusy && styles.captureBtnBusy]}
+            accessibilityLabel="Take delivery photo"
             onPress={handleCapture}
             activeOpacity={0.7}
             disabled={isBusy || !isCameraReady}

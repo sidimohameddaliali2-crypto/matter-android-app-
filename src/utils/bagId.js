@@ -8,7 +8,7 @@
 
 const sanitize = (value) => (value ?? '').toString().trim().toUpperCase();
 
-export const isBagCode = (value) => /^BAG[-_]/.test(sanitize(value));
+export const isBagCode = (value) => /^BAG[-_][A-Z0-9]+$/.test(sanitize(value));
 
 // Canonical REST resource id format (hyphen) — use for any bagService/API call.
 export const toBagResourceId = (value) => sanitize(value).replace(/^BAG_/, 'BAG-');

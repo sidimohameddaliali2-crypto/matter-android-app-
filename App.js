@@ -4,6 +4,7 @@ import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Provider } from 'react-redux';
+import * as Sentry from '@sentry/react-native';
 import { AuthProvider } from './src/contexts/AuthContext';
 import AppNavigator from './src/navigation/AppNavigator';
 import { navigationRef } from './src/navigation/navigationRef';
@@ -12,6 +13,15 @@ import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
 import { Ionicons } from '@expo/vector-icons';
 import store from './src/store';
+
+// Live crash/error reporting for real driver devices — lets us see JS
+// errors and native crashes from the field (stack trace, screen, device,
+// app version) without a driver having to describe or reproduce a bug.
+Sentry.init({
+  dsn: 'https://8ffd7f843964a4db8d660a8c5419155a@o4512237250084864.ingest.de.sentry.io/4512237258145872',
+  tracesSampleRate: 1.0,
+  enableNativeFramesTracking: true,
+});
 
 // Split out from App so this can call useDispatch (via
 // usePushNotificationDeepLink) — it needs to be a descendant of <Provider>,
@@ -30,7 +40,7 @@ const AppContent = () => {
   );
 };
 
-export default function App() {
+function App() {
   // Every screen in this app uses Ionicons for its icons, and until now the
   // app relied entirely on @expo/vector-icons' own lazy internal font
   // loading (each icon component calls Font.loadAsync itself on mount).
@@ -55,3 +65,5 @@ export default function App() {
     </Provider>
   );
 }
+
+export default Sentry.wrap(App);

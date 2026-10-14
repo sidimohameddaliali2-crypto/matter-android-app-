@@ -92,9 +92,7 @@ function normalizeStatus(delivery) {
   }
 
   if (
-    rawStatus.includes('deliver') ||
-    rawStatus.includes('complete') ||
-    rawStatus.includes('done')
+    ['delivered', 'delivery_delivered', 'completed', 'complete', 'done'].includes(rawStatus)
   ) {
     return 'delivered';
   }

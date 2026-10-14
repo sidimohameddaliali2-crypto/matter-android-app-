@@ -8,8 +8,8 @@ import * as Clipboard from 'expo-clipboard';
 import * as Location from 'expo-location';
 import { useDispatch } from 'react-redux';
 import { deliveryService } from '../services/deliveryService';
-import { offlineSyncService } from '../services/offlineSyncService';
-import { completeDelivery, updateDeliveryStatus } from '../store/deliveriesSlice';
+import { offlineSyncService, isRetryableError } from '../services/offlineSyncService';
+import { completeDelivery, updateDeliveryStatus, recordQueuedAction } from '../store/deliveriesSlice';
 import { attachDisplayStatus } from '../services/deliveryParser';
 import { isBagCode } from '../utils/bagId';
 import logger from '../utils/logger';
@@ -93,19 +93,22 @@ const mergeWithFallback = (primary = {}, fallback = {}) => {
 const CAPTURE_LOCATION_TIMEOUT_MS = 8000;
 
 const captureCompletionLocation = async () => {
+  let timer;
   try {
     const { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== 'granted') return null;
 
     const position = await Promise.race([
       Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('location fix timed out')), CAPTURE_LOCATION_TIMEOUT_MS)),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('location fix timed out')), CAPTURE_LOCATION_TIMEOUT_MS); }),
     ]);
 
     return { lat: position.coords.latitude, lng: position.coords.longitude };
   } catch (error) {
     logger.warn('📍 Could not capture completion location:', error?.message || error);
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 };
 
@@ -420,10 +423,13 @@ const DeliveryDetailsScreen = ({ navigation, route }) => {
   };
 
   const submitDeliveryCompletion = async (bagId) => {
+    if (submitting) return;
+    const session = offlineSyncService.getSessionGeneration();
     setSubmitting(true);
     try {
       // Best-effort, never blocks completion — see captureCompletionLocation.
       const location = await captureCompletionLocation();
+      if (session !== offlineSyncService.getSessionGeneration()) throw new Error('Session changed. Please try again.');
       let photoUrl = null;
 
       // deliveryPhoto is already a remote URL (not a fresh local capture)
@@ -443,6 +449,7 @@ const DeliveryDetailsScreen = ({ navigation, route }) => {
           photoUrl = await deliveryService.uploadPhoto(deliveryPhoto);
           logger.log('✅ Photo uploaded:', photoUrl);
         } catch (uploadError) {
+          if (!isRetryableError(uploadError)) throw uploadError;
           // The photo upload is a much bigger request than the completion
           // payload below, so it's the first thing to die on a bad
           // connection — treat that the same as every other failure in this
@@ -451,7 +458,7 @@ const DeliveryDetailsScreen = ({ navigation, route }) => {
           // photo step dead-ended the driver with no offline fallback,
           // unlike every other path in this screen.
           logger.error('❌ Photo upload failed, queuing offline:', uploadError);
-          await offlineSyncService.addToSyncQueue(deliveryId, 'completeDeliveryWithPhoto', {
+          const queueItem = await offlineSyncService.addToSyncQueue(deliveryId, 'completeDeliveryWithPhoto', {
             photo: deliveryPhoto,
             proof: {
               timestamp: new Date().toISOString(),
@@ -464,7 +471,8 @@ const DeliveryDetailsScreen = ({ navigation, route }) => {
             },
             bagId,
             location,
-          });
+          }, session);
+          dispatch(recordQueuedAction(queueItem));
           setDelivery((d) => (d ? { ...d, displayStatus: 'delivered' } : d));
           setDoneMode('delivered-offline');
           setStep('done');
@@ -495,19 +503,16 @@ const DeliveryDetailsScreen = ({ navigation, route }) => {
       // Routed through the Redux thunk (instead of calling deliveryService
       // directly) so that a failure here queues into offlineSyncService the
       // same way every other completion path in the app already does.
-      await dispatch(completeDelivery({ deliveryId, proof: proofData, photoUrl, bagId, location })).unwrap();
+      if (session !== offlineSyncService.getSessionGeneration()) throw new Error('Session changed. Please try again.');
+      const result = await dispatch(completeDelivery({ deliveryId, proof: proofData, photoUrl, bagId, location })).unwrap();
 
       setDelivery((d) => (d ? { ...d, displayStatus: 'delivered' } : d));
-      setDoneMode('delivered');
+      setDoneMode(result?.queued ? 'delivered-offline' : 'delivered');
       setStep('done');
       setSubmitting(false);
     } catch (error) {
-      // The thunk already queued this into offlineSyncService on failure —
-      // it will complete automatically once back online — so this still
-      // resolves to the same success screen, just with an offline note.
-      logger.error('❌ Error completing delivery (queued offline):', error);
-      setDoneMode('delivered-offline');
-      setStep('done');
+      logger.error('Could not complete delivery:', error);
+      Alert.alert('Delivery not saved', typeof error === 'string' ? error : error?.message || 'Please try again.');
       setSubmitting(false);
     }
   };
@@ -516,7 +521,7 @@ const DeliveryDetailsScreen = ({ navigation, route }) => {
     if (!failReason || failSubmitting) return;
     setFailSubmitting(true);
     try {
-      await dispatch(updateDeliveryStatus({
+      const result = await dispatch(updateDeliveryStatus({
         deliveryId,
         status: 'cancelled',
         proof: {
@@ -526,13 +531,12 @@ const DeliveryDetailsScreen = ({ navigation, route }) => {
         },
       })).unwrap();
       setDelivery((d) => (d ? { ...d, displayStatus: 'cancelled' } : d));
-      setDoneMode('failed');
+      setDoneMode(result?.queued ? 'failed-offline' : 'failed');
+      setStep('done');
     } catch (error) {
-      logger.error('❌ Error reporting failed stop (queued offline):', error);
-      setDoneMode('failed-offline');
+      Alert.alert('Report not saved', typeof error === 'string' ? error : error?.message || 'Please try again.');
     } finally {
       setFailSubmitting(false);
-      setStep('done');
     }
   };
 
@@ -541,10 +545,10 @@ const DeliveryDetailsScreen = ({ navigation, route }) => {
     setRetrying(true);
     try {
       await dispatch(updateDeliveryStatus({ deliveryId, status: 'pending' })).unwrap();
-    } catch (error) {
-      logger.error('❌ Error retrying stop (queued offline):', error);
-    } finally {
       setDelivery((d) => (d ? { ...d, displayStatus: 'pending' } : d));
+    } catch (error) {
+      Alert.alert('Retry not saved', typeof error === 'string' ? error : error?.message || 'Please try again.');
+    } finally {
       setRetrying(false);
     }
   };

@@ -3,4 +3,14 @@ node_modules
 /android
 /ios
 
+# Local Sentry API credentials
+.sentryclirc
+.env.sentry*
+
 *.md
+
+# Generated reports, local device captures, and build artifacts
+coverage/
+%ProgramData%/
+scratchpad/*
+!scratchpad/*.test.js

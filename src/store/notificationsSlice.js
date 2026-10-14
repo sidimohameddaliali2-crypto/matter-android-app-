@@ -17,6 +17,7 @@ const notificationsSlice = createSlice({
   initialState: {
     items: [],
   },
+  extraReducers: builder => { builder.addCase('session/reset', () => ({ items: [] })); },
   reducers: {
     addNotification: {
       reducer: (state, action) => {

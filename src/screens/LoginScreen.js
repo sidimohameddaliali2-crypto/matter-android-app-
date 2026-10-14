@@ -19,11 +19,11 @@ const LoginScreen = () => {
 
     setLoading(true);
     try {
-      await login(email, password);
+      await login(email.trim(), password);
     } catch (error) {
       Alert.alert(
         'Login Failed',
-        error.response?.data?.message || 'Invalid credentials'
+        error.response?.data?.message || error.message || 'Unable to sign in. Please try again.'
       );
     } finally {
       setLoading(false);

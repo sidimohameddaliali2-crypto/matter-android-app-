@@ -103,17 +103,17 @@ export const deliveryService = {
     return response.data;
   },
 
-  async uploadPhoto(photoInput) {
+  async uploadPhoto(photoInput, sessionToken) {
     const photoAsset = getPhotoAsset(photoInput);
 
     if (!photoAsset) {
-      throw new Error('Invalid delivery photo format');
+      throw Object.assign(new Error('Invalid delivery photo format'), { retryable: false });
     }
 
     const formData = new FormData();
     formData.append('image', photoAsset);
 
-    const token = await AsyncStorage.getItem('token');
+    const token = sessionToken === undefined ? await AsyncStorage.getItem('token') : sessionToken;
     const uploadUrl = `${api.defaults.baseURL}/upload/delivery-photo`;
     const response = await fetch(uploadUrl, {
       method: 'POST',
@@ -134,10 +134,14 @@ export const deliveryService = {
     }
 
     if (!response.ok) {
-      throw new Error(payload?.message || 'Photo upload failed');
+      throw Object.assign(new Error(payload?.message || 'Photo upload failed'), { status: response.status });
     }
 
-    return payload?.url || payload?.data?.url || payload?.data?.photoUrl;
+    const photoUrl = payload?.url || payload?.data?.url || payload?.data?.photoUrl;
+    if (typeof photoUrl !== 'string' || !photoUrl.trim()) {
+      throw Object.assign(new Error('Photo upload returned no image URL. Please try again.'), { retryable: false });
+    }
+    return photoUrl;
   },
 
   // DELIVERY HISTORY - fetches completed deliveries with date filtering

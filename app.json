@@ -2,7 +2,7 @@
   "expo": {
     "name": "Delivery Driver",
     "slug": "delivery-driver",
-    "version": "1.0.2",
+    "version": "1.0.5",
     "newArchEnabled": false,
     "orientation": "portrait",
     "icon": "./assets/matter-icon.png",
@@ -89,7 +89,16 @@
       ],
       "expo-asset",
       "expo-font",
-      "./plugins/withAndroidLinkingQueries.js"
+      "./plugins/withAndroidLinkingQueries.js",
+      "./plugins/withCameraMemoryFix.js",
+      [
+        "@sentry/react-native/expo",
+        {
+          "organization": "matter-nutrition",
+          "project": "react-native",
+          "url": "https://sentry.io/"
+        }
+      ]
     ],
     "extra": {
       "apiUrl": "https://matterapp.online/api",

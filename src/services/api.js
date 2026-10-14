@@ -26,7 +26,8 @@ api.interceptors.request.use(
   async (config) => {
     try {
       const token = await AsyncStorage.getItem('token');
-      if (token) {
+      config.sessionToken = config.headers.Authorization?.replace(/^Bearer /, '') || token;
+      if (token && !config.headers.Authorization) {
         config.headers.Authorization = `Bearer ${token}`;
       }
       logger.log('📤 API Request:', {
@@ -68,21 +69,25 @@ api.interceptors.response.use(
     }
     return response;
   },
-  (error) => {
+  async (error) => {
     if (error.response?.status === 401) {
       // Expected/handled case (no session or an expired token) — not an
       // unexpected failure, so it doesn't get logger.error's redbox-in-dev
       // treatment. AuthContext's registered handler takes care of logging
       // the user out.
       logger.log('🚫 Unauthorized - clearing token and logging out');
-      AsyncStorage.removeItem('token');
-      if (unauthorizedHandler) unauthorizedHandler();
+      const currentToken = await AsyncStorage.getItem('token');
+      if (currentToken && currentToken === error.config?.sessionToken) {
+        await AsyncStorage.removeItem('token');
+        if (unauthorizedHandler) await unauthorizedHandler();
+      }
       return Promise.reject(error);
     }
 
     if (!error.response) {
       logger.error('Network error:', error);
-      return Promise.reject(new Error('Network error. Please check your connection.'));
+      error.message = 'Network error. Please check your connection.';
+      return Promise.reject(error);
     }
 
     logger.error('❌ API Error:', {

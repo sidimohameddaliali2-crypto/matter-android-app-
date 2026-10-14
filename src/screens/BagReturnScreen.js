@@ -88,10 +88,11 @@ const BagReturnScreen = () => {
 
     const successfulIds = [];
     const failedIds = [];
+    let queuedCount = 0;
 
     for (const bag of scannedBags) {
       try {
-        await dispatch(
+        const result = await dispatch(
           returnBag({
             bagId: bag.id,
             notes: '',
@@ -99,6 +100,7 @@ const BagReturnScreen = () => {
           })
         ).unwrap();
 
+        if (result?.queued) queuedCount += 1;
         successfulIds.push(bag.id);
       } catch (error) {
         failedIds.push(bag.id);
@@ -108,7 +110,7 @@ const BagReturnScreen = () => {
     setIsProcessing(false);
 
     if (failedIds.length === 0) {
-      Alert.alert('Success', `${successfulIds.length} bag(s) returned successfully.`);
+      Alert.alert(queuedCount ? 'Saved offline' : 'Success', queuedCount ? `${successfulIds.length - queuedCount} returned; ${queuedCount} saved offline for sync.` : `${successfulIds.length} bag(s) returned successfully.`);
       setScannedBags([]);
       return;
     }
@@ -117,7 +119,7 @@ const BagReturnScreen = () => {
 
     Alert.alert(
       'Partial Success',
-      `${successfulIds.length} bag(s) returned. ${failedIds.length} failed and remain in the list for retry.`
+      `${successfulIds.length - queuedCount} bag(s) returned, ${queuedCount} saved offline. ${failedIds.length} failed and remain in the list for retry.`
     );
   };
 

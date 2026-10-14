@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator, StyleSheet } from 'react-native';
-import MapView, { Marker, Polyline, Circle, PROVIDER_GOOGLE } from 'react-native-maps';
+import { View, Text, TouchableOpacity, FlatList, ActivityIndicator, StyleSheet } from 'react-native';
+import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useDispatch, useSelector } from 'react-redux';
 import Svg, { Path } from 'react-native-svg';
@@ -19,13 +19,6 @@ import {
   formatMinutes
 } from '../utils/routeProgress';
 
-// Driver must be physically this close to a stop before they can mark it
-// arrived (and from there, complete it) — prevents completing a delivery
-// from somewhere else entirely. 50m rather than a tighter radius to absorb
-// real-world GPS error (Accuracy.Balanced + urban/high-rise signal
-// conditions easily drift 20-50m) and geocoded-pin imprecision, both of
-// which stack against a driver who is genuinely standing at the door.
-const ARRIVAL_RADIUS_M = 50;
 const GPS_WATCH_OPTIONS = { accuracy: Location.Accuracy.Balanced, timeInterval: 4000, distanceInterval: 15 };
 
 const isCollectionItem = (d) =>
@@ -109,10 +102,36 @@ function StopMarker({ stop, status }) {
   );
 }
 
+// Custom marker tracking continually refreshes bitmap icons on Android.
+// Keep it off and redraw only after layout or a visible content change.
+const RouteStopMarker = React.memo(function RouteStopMarker({ stop, status }) {
+  const markerRef = useRef(null);
+  const redraw = useCallback(() => markerRef.current?.redraw(), []);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(redraw);
+    return () => cancelAnimationFrame(frame);
+  }, [redraw, status, stop.stopNumber]);
+
+  return (
+    <Marker
+      ref={markerRef}
+      coordinate={stop.coords}
+      anchor={{ x: 0.5, y: 0.5 }}
+      tracksViewChanges={false}
+    >
+      <View onLayout={redraw} collapsable={false}>
+        <StopMarker stop={stop} status={status} />
+      </View>
+    </Marker>
+  );
+});
+
 const bagTagLabel = (stop) =>
   `${stop.bagType === 'cooler' ? '❄' : '🛍'} ${stop.bags} ${stop.bagType} bag${stop.bags === 1 ? '' : 's'}`;
 
 export default function RouteNavigatorScreen({ navigation }) {
+  const isFocused = useIsFocused();
   const insets = useSafeAreaInsets();
   const dispatch = useDispatch();
   const { user, driverProfile } = useAuth();
@@ -194,18 +213,20 @@ export default function RouteNavigatorScreen({ navigation }) {
 
   useEffect(() => {
     let cancelled = false;
+    let timer;
     (async () => {
       setLocationError(null);
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (cancelled) return;
-      if (status !== 'granted') {
-        setPermissionDenied(true);
-        return;
-      }
       try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (cancelled) return;
+        if (status !== 'granted') {
+          setPermissionDenied(true);
+          return;
+        }
+        setPermissionDenied(false);
         const pos = await Promise.race([
           Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Location request timed out')), 12000))
+          new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Location request timed out')), 12000); })
         ]);
         if (cancelled) return;
         setDriverPosition({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
@@ -213,60 +234,79 @@ export default function RouteNavigatorScreen({ navigation }) {
         if (cancelled) return;
         logger.warn('📍 Route Navigator: could not get initial position:', error?.message || error);
         setLocationError('Could not get your location. Check that GPS/location services are on.');
+      } finally {
+        clearTimeout(timer);
       }
     })();
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
   }, [locationAttempt]);
 
-  // Continuous GPS tracking only while actively driving, and torn down the
-  // moment the screen loses focus or phase leaves 'driving' — foreground
-  // only, matching the rest of this app (no background location anywhere).
-  useFocusEffect(
-    useCallback(() => {
-      return () => {
-        watchSubRef.current?.remove();
-        watchSubRef.current = null;
-      };
-    }, [])
-  );
-
-  useEffect(() => {
-    // Kept running through 'arrived' too (not just 'driving') — the Complete
-    // button's proximity gate below needs a live position, not a stale one
-    // frozen at the moment the driver tapped "I've arrived".
-    if (phase !== 'driving' && phase !== 'arrived') {
-      watchSubRef.current?.remove();
-      watchSubRef.current = null;
-      return;
-    }
-
+  // Focus and driving phase both own the watch. Always remove an async
+  // subscription that arrives after blur, and recreate it on refocus.
+  useFocusEffect(useCallback(() => {
+    if (phase !== 'driving') return;
     let cancelled = false;
     (async () => {
-      const sub = await Location.watchPositionAsync(GPS_WATCH_OPTIONS, (pos) => {
-        const next = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
-        setDriverPosition((prev) => {
-          if (prev && Number.isFinite(pos.coords.heading) && pos.coords.heading >= 0) {
-            setHeading(pos.coords.heading);
-          } else if (prev) {
-            setHeading(bearing(prev, next));
-          }
-          return next;
+      try {
+        const sub = await Location.watchPositionAsync(GPS_WATCH_OPTIONS, pos => {
+          if (cancelled) return;
+          const next = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+          setDriverPosition(prev => {
+            setHeading(Number.isFinite(pos.coords.heading) && pos.coords.heading >= 0 ? pos.coords.heading : prev ? bearing(prev, next) : 0);
+            return next;
+          });
         });
-      });
-      if (cancelled) sub.remove();
-      else watchSubRef.current = sub;
+        if (cancelled) sub.remove();
+        else watchSubRef.current = sub;
+      } catch (error) {
+        if (!cancelled) setLocationError('GPS tracking stopped. Check location services and restart your route.');
+      }
     })();
-
     return () => {
       cancelled = true;
+      watchSubRef.current?.remove();
+      watchSubRef.current = null;
     };
-  }, [phase]);
+  }, [phase]));
+
+  // Remembers the args of the last fetchDirections call so the retry button
+  // can repeat it exactly.
+  const lastFetchArgsRef = useRef(null);
+  const directionsRequestRef = useRef(0);
+  useEffect(() => () => { directionsRequestRef.current += 1; }, []);
+
+  // Dedupe guard: a request for the SAME destination, from roughly the SAME
+  // position, within this cooldown window is almost certainly redundant —
+  // the main case this protects against is off-route detection (next step)
+  // re-triggering repeatedly while a driver sits off-route for a while.
+  // Explicit user actions (Start route, the Retry button) pass force:true
+  // to always bypass this — the driver asked for it directly, so it should
+  // never be silently swallowed.
+  const DEDUPE_COOLDOWN_MS = 8000;
+  const DEDUPE_MIN_MOVE_M = 25;
+  const lastRequestRef = useRef(null); // { destinationId, position, timestamp }
 
   const fetchDirections = useCallback(
-    async (fromPosition, toStops) => {
+    async (fromPosition, toStops, { force = false } = {}) => {
       if (!driverId || !fromPosition || toStops.length === 0) return;
+
+      const destinationId = toStops[0]?.delivery?._id ?? null;
+      const last = lastRequestRef.current;
+      if (!force && last && last.destinationId === destinationId) {
+        const elapsed = Date.now() - last.timestamp;
+        const moved = distanceMeters(fromPosition, last.position);
+        if (elapsed < DEDUPE_COOLDOWN_MS && moved < DEDUPE_MIN_MOVE_M) {
+          logger.log('🗺️ Route Navigator: skipping redundant directions request (same destination, barely moved, within cooldown)');
+          return;
+        }
+      }
+      lastRequestRef.current = { destinationId, position: fromPosition, timestamp: Date.now() };
+
+      const requestId = ++directionsRequestRef.current;
+      lastFetchArgsRef.current = { fromPosition, toStops };
       setDirectionsLoading(true);
       setDirectionsError(null);
       try {
@@ -275,17 +315,28 @@ export default function RouteNavigatorScreen({ navigation }) {
           ...toStops.map((s) => ({ lat: s.coords.latitude, lng: s.coords.longitude }))
         ];
         const result = await driverService.getRouteDirections(driverId, points);
-        setDirections(result);
+        if (requestId === directionsRequestRef.current) setDirections(result);
       } catch (error) {
+        if (requestId !== directionsRequestRef.current) return;
         logger.warn('🗺️ Route Navigator: directions request failed:', error?.message || error);
         setDirectionsError('Could not load driving directions.');
-        setDirections(null);
+        // Deliberately NOT clearing `directions` here — a brief network
+        // drop mid-route shouldn't blank the map and instruction banner
+        // when the last successful route is still a perfectly usable
+        // approximation. It only gets replaced once a fetch actually
+        // succeeds again.
       } finally {
-        setDirectionsLoading(false);
+        if (requestId === directionsRequestRef.current) setDirectionsLoading(false);
       }
     },
     [driverId]
   );
+
+  const retryDirections = useCallback(() => {
+    const last = lastFetchArgsRef.current;
+    if (!last) return;
+    fetchDirections(last.fromPosition, last.toStops, { force: true });
+  }, [fetchDirections]);
 
   // Directions are requested one stop at a time — just the driver's current
   // position to the single active stop, never the whole remaining route —
@@ -306,6 +357,8 @@ export default function RouteNavigatorScreen({ navigation }) {
   }, [driverPosition, heading, activeStop, fetchDirections]);
 
   const endRoute = useCallback(() => {
+    directionsRequestRef.current += 1;
+    setDirectionsLoading(false);
     setPhase('idle');
     setDirections(null);
     setDirectionsError(null);
@@ -346,6 +399,8 @@ export default function RouteNavigatorScreen({ navigation }) {
     if (phase !== 'driving' && phase !== 'arrived') return; // not mid-route, nothing to resync
 
     if (!activeStop) {
+      directionsRequestRef.current += 1;
+      setDirectionsLoading(false);
       setPhase('done');
       setDirections(null);
       return;
@@ -388,33 +443,60 @@ export default function RouteNavigatorScreen({ navigation }) {
           }
         }
 
-        return { legIndex: i, distanceLeftInLeg: leftInLeg, step, legDurationSeconds: leg.durationSeconds };
+        return {
+          legIndex: i,
+          distanceLeftInLeg: leftInLeg,
+          step,
+          legDurationSeconds: leg.durationSeconds,
+          distanceOffRoute: onRoute.distanceOffRoute
+        };
       }
       cumulative = legEnd;
     }
     return null;
   }, [driverPosition, directions]);
 
-  // Distance to the active stop drives both the "I've arrived" button's
-  // enabled state and its label — the driver physically cannot mark a stop
-  // arrived (and from there, complete it) from somewhere else.
-  const distanceToActiveStop =
-    activeStop && driverPosition ? distanceMeters(driverPosition, activeStop.coords) : null;
-  const nearArrival = distanceToActiveStop != null && distanceToActiveStop <= ARRIVAL_RADIUS_M;
+  // Off-route detection: if the driver drifts far enough from the suggested
+  // route for two consecutive GPS fixes (not just one noisy blip), refetch
+  // directions from their current position — the same way a real
+  // navigation app re-routes when you miss a turn or take a shortcut. Goes
+  // through the normal (non-forced) fetchDirections path, so the dedupe
+  // guard above still protects against doing this too often if the drift
+  // persists for a while.
+  const OFF_ROUTE_THRESHOLD_M = 150;
+  const offRouteStreakRef = useRef(0);
+
+  useEffect(() => {
+    if (phase !== 'driving' || !progress || !driverPosition || !activeStop) {
+      offRouteStreakRef.current = 0;
+      return;
+    }
+
+    if (progress.distanceOffRoute > OFF_ROUTE_THRESHOLD_M) {
+      offRouteStreakRef.current += 1;
+      if (offRouteStreakRef.current >= 2) {
+        offRouteStreakRef.current = 0;
+        logger.log('🗺️ Route Navigator: driver drifted off-route, refetching directions');
+        fetchDirections(driverPosition, [activeStop]);
+      }
+    } else {
+      offRouteStreakRef.current = 0;
+    }
+  }, [phase, progress, driverPosition, activeStop, fetchDirections]);
 
   const toggleCameraMode = useCallback(() => {
     setCameraMode((m) => (m === 'car' ? '2d' : 'car'));
   }, []);
 
   useEffect(() => {
-    if (!mapRef.current || !driverPosition || phase !== 'driving') return;
+    if (!isFocused || !mapRef.current || !driverPosition || phase !== 'driving') return;
     mapRef.current.animateCamera(
       cameraMode === 'car'
         ? { center: driverPosition, heading, pitch: 60, zoom: 17 }
         : { center: driverPosition, heading: 0, pitch: 0, zoom: 15.5 },
       { duration: 450 }
     );
-  }, [driverPosition, heading, cameraMode, phase]);
+  }, [driverPosition, heading, cameraMode, phase, isFocused]);
 
   const recenter = useCallback(() => {
     if (!mapRef.current) return;
@@ -434,11 +516,11 @@ export default function RouteNavigatorScreen({ navigation }) {
   }, [phase, driverPosition, cameraMode, heading, stops]);
 
   useEffect(() => {
-    if (phase === 'idle' && stops.length > 0) {
+    if (isFocused && phase === 'idle' && stops.length > 0) {
       const t = setTimeout(recenter, 300);
       return () => clearTimeout(t);
     }
-  }, [phase, stops, recenter]);
+  }, [phase, stops, recenter, isFocused]);
 
   if (permissionDenied) {
     return (
@@ -485,15 +567,18 @@ export default function RouteNavigatorScreen({ navigation }) {
       </View>
 
       <View style={styles.mapWrap}>
+        {/* Reuse the SDK view: repeated recreation retained memory in the
+            Android device stress test. Remove overlays and location on blur. */}
         <MapView
           ref={mapRef}
           style={StyleSheet.absoluteFill}
           provider={PROVIDER_GOOGLE}
           pitchEnabled
           rotateEnabled
-          showsUserLocation
+          showsUserLocation={isFocused}
           showsMyLocationButton={false}
           customMapStyle={DARK_MAP_STYLE}
+          onMapReady={recenter}
           initialRegion={{
             latitude: driverPosition?.latitude || stops[0]?.coords.latitude || 25.2,
             longitude: driverPosition?.longitude || stops[0]?.coords.longitude || 55.27,
@@ -501,25 +586,15 @@ export default function RouteNavigatorScreen({ navigation }) {
             longitudeDelta: 0.08
           }}
         >
-          {stops.map((stop, i) => (
-            <Marker key={stop.delivery._id} coordinate={stop.coords} anchor={{ x: 0.5, y: 0.5 }}>
-              <StopMarker
-                stop={stop}
-                status={i === 0 && phase !== 'idle' ? 'active' : stop.kind}
-              />
-            </Marker>
-          ))}
-          {directions?.polyline?.length > 0 && (
-            <Polyline coordinates={directions.polyline} strokeColor={colors.blue} strokeWidth={5} />
-          )}
-          {activeStop && (phase === 'driving' || phase === 'arrived') && (
-            <Circle
-              center={activeStop.coords}
-              radius={ARRIVAL_RADIUS_M}
-              strokeColor={colors.lime}
-              strokeWidth={2}
-              fillColor="rgba(188,246,121,0.18)"
+          {isFocused && stops.map((stop, i) => (
+            <RouteStopMarker
+              key={stop.delivery._id}
+              stop={stop}
+              status={i === 0 && phase !== 'idle' ? 'active' : stop.kind}
             />
+          ))}
+          {isFocused && directions?.polyline?.length > 0 && (
+            <Polyline coordinates={directions.polyline} strokeColor={colors.blue} strokeWidth={5} />
           )}
         </MapView>
 
@@ -544,8 +619,11 @@ export default function RouteNavigatorScreen({ navigation }) {
           </View>
         )}
         {!!directionsError && !directionsLoading && (
-          <View style={styles.gpsPill}>
+          <View style={[styles.gpsPill, styles.gpsPillRow]}>
             <Text style={styles.gpsPillText}>{directionsError}</Text>
+            <TouchableOpacity onPress={retryDirections} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Text style={styles.gpsPillRetry}>Retry</Text>
+            </TouchableOpacity>
           </View>
         )}
 
@@ -571,8 +649,10 @@ export default function RouteNavigatorScreen({ navigation }) {
               {stops.length} stop{stops.length === 1 ? '' : 's'} ·{' '}
               {stops.filter((s) => s.kind === 'collection').length} collections
             </Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 12 }}>
-              {stops.map((s) => (
+            <FlatList horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 12 }}
+              data={stops} keyExtractor={(s) => String(s.delivery._id)}
+              initialNumToRender={4} maxToRenderPerBatch={4} windowSize={3}
+              renderItem={({ item: s }) => (
                 <View key={s.delivery._id} style={styles.mini}>
                   <Text style={styles.miniTitle} numberOfLines={1}>
                     {s.stopNumber}. {s.name}
@@ -582,8 +662,8 @@ export default function RouteNavigatorScreen({ navigation }) {
                     {bagTagLabel(s)}
                   </Text>
                 </View>
-              ))}
-            </ScrollView>
+              )}
+            />
             {locationError ? (
               <>
                 <Text style={styles.locationErrorText}>{locationError}</Text>
@@ -636,18 +716,8 @@ export default function RouteNavigatorScreen({ navigation }) {
               )}
             </View>
             <View style={styles.row}>
-              <TouchableOpacity
-                style={[styles.btn, !nearArrival && styles.btnDisabled]}
-                onPress={handleArrive}
-                disabled={!nearArrival}
-              >
-                <Text style={styles.btnText}>
-                  {nearArrival
-                    ? "I've arrived"
-                    : distanceToActiveStop != null
-                    ? `Get closer (${formatDistance(distanceToActiveStop)} away)`
-                    : 'Arriving soon'}
-                </Text>
+              <TouchableOpacity style={styles.btn} onPress={handleArrive}>
+                <Text style={styles.btnText}>I've arrived</Text>
               </TouchableOpacity>
             </View>
           </>
@@ -676,18 +746,8 @@ export default function RouteNavigatorScreen({ navigation }) {
                 <Text style={styles.noteText}>{activeStop.note}</Text>
               </View>
             )}
-            {!nearArrival && (
-              <Text style={styles.locationErrorText}>
-                You've moved {distanceToActiveStop != null ? formatDistance(distanceToActiveStop) : 'away'} from
-                this stop — get back within {ARRIVAL_RADIUS_M}m to complete it.
-              </Text>
-            )}
             <View style={styles.row}>
-              <TouchableOpacity
-                style={[styles.btn, !nearArrival && styles.btnDisabled]}
-                onPress={handleCompleteStop}
-                disabled={!nearArrival}
-              >
+              <TouchableOpacity style={styles.btn} onPress={handleCompleteStop}>
                 <Text style={styles.btnText}>
                   {activeStop.kind === 'collection' ? 'Scan collection & complete' : 'Scan bags & complete'}
                 </Text>
@@ -736,6 +796,8 @@ const styles = StyleSheet.create({
 
   gpsPill: { position: 'absolute', left: 12, bottom: 16, flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: 'rgba(5,23,71,0.9)', borderWidth: 1, borderColor: colors.border, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7 },
   gpsPillText: { color: colors.muted, fontSize: 11, fontWeight: '700' },
+  gpsPillRow: { right: 12, justifyContent: 'space-between' },
+  gpsPillRetry: { color: colors.lime, fontSize: 11, fontWeight: '800', letterSpacing: 0.3 },
 
   floatCol: { position: 'absolute', right: 12, bottom: 16, gap: 8 },
   floatBtn: { width: 44, height: 44, borderRadius: 999, backgroundColor: colors.bgAlt, borderWidth: 1.5, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
@@ -781,7 +843,6 @@ const styles = StyleSheet.create({
 
   row: { flexDirection: 'row', gap: 10, marginTop: 14 },
   btn: { minHeight: 52, borderRadius: 999, backgroundColor: colors.lime, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },
-  btnDisabled: { backgroundColor: colors.border, opacity: 0.6 },
   btnText: { color: colors.bgAlt, fontSize: 15, fontWeight: '800' },
   btnGhost: { minHeight: 52, borderRadius: 999, borderWidth: 1.5, borderColor: colors.border, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10 },
   btnGhostText: { color: colors.muted, fontSize: 13, fontWeight: '800' }

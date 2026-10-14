@@ -1,20 +1,32 @@
 ﻿// screens/QRScannerScreen.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, TouchableOpacity, Alert, Modal, TextInput, ActivityIndicator } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
+import { useIsFocused } from '@react-navigation/native';
 import { useDispatch } from 'react-redux';
 import { returnBag } from '../store/deliveriesSlice';
 import { isBagCode, toBagScanCode } from '../utils/bagId';
 
 const QRScannerScreen = ({ navigation, route }) => {
   const dispatch = useDispatch();
+  const isFocused = useIsFocused();
+  const successTimer = useRef(null);
+  const active = useRef(false);
+  useEffect(() => {
+    active.current = isFocused;
+    setScanned(false);
+    setShowSuccess(false);
+    setReturning(false);
+    return () => { active.current = false; clearTimeout(successTimer.current); };
+  }, [isFocused]);
   const [facing, setFacing] = useState('back');
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [manualCode, setManualCode] = useState('BAG-0');
   const [returning, setReturning] = useState(false);
+  const [returnQueued, setReturnQueued] = useState(false);
   const [isFlashOn, setIsFlashOn] = useState(false);
 
   const { mode, deliveryId } = route.params || {};
@@ -25,7 +37,7 @@ const QRScannerScreen = ({ navigation, route }) => {
     }
   }, [permission]);
 
-  if (!permission) return <View />;
+  if (!isFocused || !permission) return <View />;
 
   if (!permission.granted) {
     return (
@@ -54,7 +66,7 @@ const QRScannerScreen = ({ navigation, route }) => {
   };
 
   const handleBarcodeScanned = ({ type, data }) => {
-    if (!scanned) {
+    if (active.current && !scanned) {
       setScanned(true);
       processBagCode(data);
     }
@@ -63,7 +75,7 @@ const QRScannerScreen = ({ navigation, route }) => {
   const handleDeliveryScan = (bagId) => {
     setShowSuccess(true);
     
-    setTimeout(() => {
+    successTimer.current = setTimeout(() => {
       setShowSuccess(false);
       navigation.navigate({
         name: 'DeliveryDetails',
@@ -79,16 +91,19 @@ const QRScannerScreen = ({ navigation, route }) => {
   const handleReturnScan = async (bagId) => {
     setReturning(true);
     try {
-      await dispatch(returnBag({ bagId, notes: '', photoUrl: null })).unwrap();
+      const result = await dispatch(returnBag({ bagId, notes: '', photoUrl: null })).unwrap();
+      if (!active.current) return;
+      setReturnQueued(!!result?.queued);
       setShowSuccess(true);
-      setTimeout(() => {
+      successTimer.current = setTimeout(() => {
         setShowSuccess(false);
         setReturning(false);
-        Alert.alert('Bag Returned', `Bag ${bagId} has been returned successfully`, [
+        Alert.alert(result?.queued ? 'Saved offline' : 'Bag Returned', result?.queued ? `Bag ${bagId} saved offline for sync` : `Bag ${bagId} has been returned successfully`, [
           { text: 'OK', onPress: () => navigation.navigate('BagReturn') },
         ]);
       }, 1500);
     } catch (error) {
+      if (!active.current) return;
       setReturning(false);
       setScanned(false);
       Alert.alert(
@@ -230,7 +245,7 @@ const QRScannerScreen = ({ navigation, route }) => {
                 </View>
                 <Text className="text-white text-2xl font-bold mb-2">Success!</Text>
                 <Text className="text-white/80 text-base text-center mb-5">
-                  {mode === 'return' ? 'Bag returned successfully' : 'Delivery completed successfully'}
+                  {mode === 'return' ? (returnQueued ? 'Bag return saved offline' : 'Bag returned successfully') : 'Bag scanned. Submitting delivery proof next.'}
                 </Text>
                 <View className="w-5 h-5 rounded-full border-2 border-green-500 border-t-transparent" />
               </>
